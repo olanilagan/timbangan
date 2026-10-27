@@ -1,0 +1,381 @@
+<!doctype html><html><head><meta charset=utf8><meta name=viewport content="width=device-width,initial-scale=1,viewport-fit=cover"><style>:root{color-scheme:light;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}html{scroll-padding-top:env(safe-area-inset-top,0px)}body{margin:0;padding:0;font:14px -apple-system,BlinkMacSystemFont,sans-serif;background:#fff;color:#000}img{max-width:100%}[hidden]:not([hidden=until-found i]){display:none!important}</style></head><body>
+<meta name="claude:viewport-fit-sides" content="cover">
+<title>Weigh Crate 3D</title>
+<style>
+  /* Layout: full-bleed 3D stage; floating control panel + legend over a theme-aware studio ground */
+  :root{
+    --bg:#e8e9ec;            /* studio ground (light) */
+    --panel:#ffffffee;
+    --panel-br:#d4d6db;
+    --fg:#1c1f24;
+    --muted:#5c616b;
+    --accent:#c0392b;        /* same red as the drawings' callouts */
+    --accent-ink:#ffffff;
+    --chip:#f1f2f4;
+    --shadow:0 6px 24px rgba(20,24,33,.14);
+    color-scheme:light;
+  }
+  @media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+    --bg:#15171b; --panel:#1e2127ee; --panel-br:#333842; --fg:#eef0f3;
+    --muted:#9aa1ad; --accent:#e05545; --accent-ink:#1a0d0b; --chip:#272b32;
+    --shadow:0 8px 28px rgba(0,0,0,.5); color-scheme:dark;
+  }}
+  :root[data-theme="dark"]{
+    --bg:#15171b; --panel:#1e2127ee; --panel-br:#333842; --fg:#eef0f3;
+    --muted:#9aa1ad; --accent:#e05545; --accent-ink:#1a0d0b; --chip:#272b32;
+    --shadow:0 8px 28px rgba(0,0,0,.5); color-scheme:dark;
+  }
+  html,body{height:100%}
+  body{
+    margin:0;background:var(--bg);color:var(--fg);overflow:hidden;
+    font-family:"Inter",system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+  }
+  #stage{position:fixed;inset:0;display:block;touch-action:none;cursor:grab}
+  #stage:active{cursor:grabbing}
+
+  .hud{position:fixed;z-index:5}
+  /* Title card top-left */
+  #titlecard{
+    top:env(safe-area-inset-top,0px);left:0;
+    margin:12px;margin-left:max(12px,env(safe-area-inset-left,0px));
+    background:var(--panel);border:1px solid var(--panel-br);border-radius:12px;
+    box-shadow:var(--shadow);padding:11px 14px;backdrop-filter:blur(8px);max-width:min(78vw,340px);
+  }
+  #titlecard h1{margin:0;font-size:15px;letter-spacing:.2px;font-weight:700}
+  #titlecard p{margin:3px 0 0;font-size:11.5px;color:var(--muted);line-height:1.35}
+
+  /* Control panel bottom-left */
+  #controls{
+    left:0;bottom:env(safe-area-inset-bottom,0px);
+    margin:12px;margin-left:max(12px,env(safe-area-inset-left,0px));
+    display:flex;flex-wrap:wrap;gap:7px;max-width:min(92vw,430px);
+  }
+  button.ctl{
+    appearance:none;font:inherit;font-size:12px;font-weight:600;color:var(--fg);
+    background:var(--panel);border:1px solid var(--panel-br);border-radius:9px;
+    padding:8px 11px;cursor:pointer;box-shadow:var(--shadow);backdrop-filter:blur(8px);
+    display:inline-flex;align-items:center;gap:6px;line-height:1;transition:transform .08s,border-color .15s;
+  }
+  button.ctl:hover{border-color:var(--accent)}
+  button.ctl:active{transform:translateY(1px)}
+  button.ctl[aria-pressed="true"]{background:var(--accent);color:var(--accent-ink);border-color:var(--accent)}
+  button.ctl:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+  .dot{width:9px;height:9px;border-radius:50%;flex:0 0 auto}
+
+  /* Legend top-right */
+  #legend{
+    top:env(safe-area-inset-top,0px);right:0;
+    margin:12px;margin-right:max(12px,env(safe-area-inset-right,0px));
+    background:var(--panel);border:1px solid var(--panel-br);border-radius:12px;
+    box-shadow:var(--shadow);padding:10px 12px;backdrop-filter:blur(8px);font-size:11.5px;min-width:132px;
+  }
+  #legend .lrow{display:flex;align-items:center;gap:8px;padding:2.5px 0;color:var(--muted)}
+  #legend .sw{width:13px;height:13px;border-radius:3px;flex:0 0 auto;border:1px solid #0003}
+
+  /* Projected dimension / feature tags */
+  #tags{position:fixed;inset:0;pointer-events:none;z-index:4;overflow:hidden}
+  .tag{
+    position:absolute;transform:translate(-50%,-50%);white-space:nowrap;
+    font-size:11px;font-weight:600;font-variant-numeric:tabular-nums;
+    background:var(--panel);color:var(--fg);border:1px solid var(--panel-br);
+    border-radius:7px;padding:3px 7px;box-shadow:var(--shadow);backdrop-filter:blur(6px);
+  }
+  .tag.acc{border-color:var(--accent);color:var(--accent)}
+  .hint{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(env(safe-area-inset-bottom,0px) + 14px);
+    z-index:3;font-size:11px;color:var(--muted);background:var(--panel);border:1px solid var(--panel-br);
+    border-radius:20px;padding:5px 13px;box-shadow:var(--shadow);opacity:.9;pointer-events:none}
+  @media (max-width:560px){ .hint{display:none} #legend{display:none} }
+</style>
+
+<canvas id="stage"></canvas>
+<div id="tags" aria-hidden="true"></div>
+
+<div class="hud" id="titlecard">
+  <h1>Walk-Through Weigh Crate</h1>
+  <p>Ilagan family cattle fattening · Lot 3410-A, Alitagtag. Drag to orbit · scroll to zoom · right-drag to pan.</p>
+</div>
+
+<div class="hud" id="legend">
+  <div class="lrow"><span class="sw" style="background:#b9bec4"></span>Galvanised steel</div>
+  <div class="lrow"><span class="sw" style="background:#6f7681"></span>Sliding gates ×2</div>
+  <div class="lrow"><span class="sw" style="background:#c0392b"></span>Load cells ×4</div>
+  <div class="lrow"><span class="sw" style="background:#cfccc4"></span>Concrete pad</div>
+</div>
+
+<div class="hud" id="controls">
+  <button class="ctl" id="btnGates" aria-pressed="false">⇄ Open gates</button>
+  <button class="ctl" id="btnGhost" aria-pressed="false">◫ See inside</button>
+  <button class="ctl" id="btnTags" aria-pressed="true">⌗ Dimensions</button>
+  <button class="ctl" id="btnSpin" aria-pressed="false">↻ Spin</button>
+  <button class="ctl" id="btnReset">⟲ Reset view</button>
+</div>
+
+<div class="hint" id="hint">Drag to orbit · scroll to zoom · right-drag to pan</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+(function(){
+  "use strict";
+  var THREEok = typeof THREE !== "undefined";
+  var canvas = document.getElementById("stage");
+  if(!THREEok){ document.getElementById("hint").textContent="3D library failed to load."; return; }
+
+  // ---- renderer (alpha so the theme-aware CSS ground shows through) ----
+  var renderer = new THREE.WebGLRenderer({canvas:canvas, antialias:true, alpha:true});
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio||1, 2));
+  renderer.shadowMap.enabled = true;
+  renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+
+  var scene = new THREE.Scene();
+  var camera = new THREE.PerspectiveCamera(42, 1, 0.1, 100);
+
+  // ---- lights ----
+  scene.add(new THREE.HemisphereLight(0xffffff, 0x9fa4ad, 0.85));
+  var sun = new THREE.DirectionalLight(0xffffff, 0.95);
+  sun.position.set(3.2, 5.4, 2.6);
+  sun.castShadow = true;
+  sun.shadow.mapSize.set(2048,2048);
+  var d=4; sun.shadow.camera.left=-d; sun.shadow.camera.right=d;
+  sun.shadow.camera.top=d; sun.shadow.camera.bottom=-d;
+  sun.shadow.camera.near=0.5; sun.shadow.camera.far=20; sun.shadow.bias=-0.0004;
+  scene.add(sun);
+  var fill = new THREE.DirectionalLight(0xffffff, 0.25); fill.position.set(-4,2,-3); scene.add(fill);
+
+  // ---- materials ----
+  var matSteel = new THREE.MeshPhongMaterial({color:0xb9bec4, shininess:48, specular:0x6a6f77});
+  var matGate  = new THREE.MeshPhongMaterial({color:0x6f7681, shininess:44, specular:0x45494f});
+  var matPlate = new THREE.MeshPhongMaterial({color:0x9aa0a7, shininess:28, specular:0x4a4e54});
+  var matSheet = new THREE.MeshPhongMaterial({color:0xaab0b7, shininess:20, specular:0x3c4046});
+  var matCell  = new THREE.MeshPhongMaterial({color:0xc0392b, shininess:30, specular:0x551812});
+  var matPad   = new THREE.MeshPhongMaterial({color:0xcfccc4, shininess:4});
+  var matDark  = new THREE.MeshPhongMaterial({color:0x2d3137, shininess:30});
+  var matScreen= new THREE.MeshPhongMaterial({color:0x101418, shininess:80, emissive:0x0b2a16});
+
+  // ---- helpers ----
+  var UP = new THREE.Vector3(0,1,0);
+  function pipe(group, x1,y1,z1, x2,y2,z2, r, mat){
+    var a=new THREE.Vector3(x1,y1,z1), b=new THREE.Vector3(x2,y2,z2);
+    var len=a.distanceTo(b);
+    var geo=new THREE.CylinderGeometry(r,r,len,16);
+    var m=new THREE.Mesh(geo,mat); m.castShadow=true; m.receiveShadow=true;
+    m.position.copy(a).add(b).multiplyScalar(0.5);
+    var dir=b.clone().sub(a).normalize();
+    m.quaternion.setFromUnitVectors(UP, dir);
+    group.add(m);
+    // rounded cap feel
+    return m;
+  }
+  function postCap(group,x,y,z,r,mat){
+    var c=new THREE.Mesh(new THREE.SphereGeometry(r,14,8,0,Math.PI*2,0,Math.PI/2),mat);
+    c.position.set(x,y,z); c.castShadow=true; group.add(c);
+  }
+  function box(group, cx,cy,cz, sx,sy,sz, mat){
+    var m=new THREE.Mesh(new THREE.BoxGeometry(sx,sy,sz),mat);
+    m.position.set(cx,cy,cz); m.castShadow=true; m.receiveShadow=true; group.add(m);
+    return m;
+  }
+
+  // ===== dimensions (metres) =====
+  var LEN=2.30, WID=0.80, FLOOR=0.15, SIDE=1.50;
+  var hx=LEN/2, hz=WID/2;              // 1.15 , 0.40
+  var postZ=hz-0.055;                  // 0.345 side-post offset
+  var railR=0.0365, postR=0.0445;      // 2.5" and 3.5" OD/2
+  var railY=[0.97,1.14,1.31,1.48,1.65];// 5 rails above the sheet (world Y)
+  var topY=FLOOR+SIDE;                 // 1.65
+
+  // ---- concrete pad (recessed; deck floor sits ~flush) ----
+  box(scene, 0,-0.075,0, 2.60,0.15,1.10, matPad);
+  // level approach aprons (visual)
+  box(scene, -(hx+0.45),-0.075,0, 0.9,0.15,0.80, matPad);
+  box(scene,  (hx+0.45),-0.075,0, 0.9,0.15,0.80, matPad);
+
+  // ===================== CRATE BODY (static) =====================
+  var body = new THREE.Group(); scene.add(body);
+
+  // deck frame (RHS perimeter, represented as a slab band)
+  box(body, 0,0.11,0, LEN,0.075,WID, matDark);
+  // checker-plate floor + round-bar cleats
+  box(body, 0,0.158,0, LEN-0.11,0.012,WID-0.08, matPlate);
+  for(var cx=-hx+0.17; cx<=hx-0.17; cx+=0.25){
+    pipe(body, cx,0.168,-(hz-0.05), cx,0.168,(hz-0.05), 0.008, matDark);
+  }
+
+  // side posts: 4 corners + 2 mid (long sides)
+  var postX=[-hx+0.055, 0, hx-0.055];
+  for(var pi=0; pi<postX.length; pi++){
+    [-postZ,postZ].forEach(function(pz){
+      pipe(body, postX[pi],FLOOR, pz, postX[pi],topY, pz, postR, matSteel);
+      postCap(body, postX[pi],topY, pz, postR, matSteel);
+    });
+  }
+  // lower solid sheet both long sides (floor -> 0.80)
+  [-(postZ),postZ].forEach(function(pz){
+    box(body, 0,(FLOOR+0.80)/2, pz, LEN-0.11,0.80-FLOOR,0.02, matSheet);
+  });
+  // 5 rails per long side
+  [-(postZ),postZ].forEach(function(pz){
+    railY.forEach(function(ry){
+      pipe(body, -(hx-0.055),ry, pz, (hx-0.055),ry, pz, railR, matSteel);
+    });
+  });
+
+  // load cells (4 corners, under deck)
+  [-1,1].forEach(function(sx){ [-1,1].forEach(function(sz){
+    box(body, sx*(hx-0.10),0.055,sz*postZ, 0.17,0.065,0.09, matCell);
+    // little foot
+    box(body, sx*(hx-0.10),0.015,sz*postZ, 0.10,0.03,0.10, matDark);
+  });});
+
+  // ===================== SLIDING GATES =====================
+  function buildGate(){
+    var g=new THREE.Group();
+    var gz=0.36;                        // half clear opening 0.72
+    // stiles
+    [-gz,gz].forEach(function(z){ pipe(g, 0,FLOOR,z, 0,topY,z, railR, matGate); });
+    // 5 rails (across Z)
+    [0.97,1.14,1.31,1.48,1.63].forEach(function(ry){ pipe(g, 0,ry,-gz, 0,ry,gz, railR, matGate); });
+    // lower sheet to 0.80
+    box(g, 0,(FLOOR+0.80)/2,0, 0.03,0.80-FLOOR,gz*2, matGate);
+    // diagonal brace
+    pipe(g, 0,FLOOR+0.03,-gz, 0,topY-0.05,gz, railR*0.85, matGate);
+    g.castShadow=true;
+    return g;
+  }
+  var gateEntry=buildGate(); gateEntry.position.x=-hx; scene.add(gateEntry);
+  var gateExit =buildGate(); gateExit.position.x= hx; scene.add(gateExit);
+  // top tracks (fixed) over each gate
+  box(scene, -hx,topY+0.06,0, 0.08,0.08,1.02, matDark);
+  box(scene,  hx,topY+0.06,0, 0.08,0.08,1.02, matDark);
+
+  // ===================== WEIGHT INDICATOR on a post =====================
+  var stand=new THREE.Group(); scene.add(stand);
+  pipe(stand, -hx-0.35,0,-(hz+0.35), -hx-0.35,1.15,-(hz+0.35), 0.022, matSteel);
+  var disp=box(stand, -hx-0.35,1.22,-(hz+0.30), 0.26,0.18,0.05, matDark);
+  var scr=box(stand, -hx-0.35,1.22,-(hz+0.274), 0.20,0.12,0.012, matScreen);
+  scr.rotation.x=0; // faces -Z
+
+  // ---- shadow-catcher ground (keeps CSS theme bg visible) ----
+  var ground=new THREE.Mesh(new THREE.PlaneGeometry(40,40), new THREE.ShadowMaterial({opacity:0.22}));
+  ground.rotation.x=-Math.PI/2; ground.position.y=-0.151; ground.receiveShadow=true; scene.add(ground);
+
+  // ===================== CAMERA ORBIT (custom) =====================
+  var target=new THREE.Vector3(0,0.72,0);
+  var sph={r:5.4, theta:-0.92, phi:1.12};       // azimuth, polar
+  var HOME={r:5.4, theta:-0.92, phi:1.12};
+  function applyCam(){
+    sph.phi=Math.max(0.18, Math.min(1.52, sph.phi));
+    sph.r  =Math.max(2.6, Math.min(12, sph.r));
+    camera.position.set(
+      target.x + sph.r*Math.sin(sph.phi)*Math.sin(sph.theta),
+      target.y + sph.r*Math.cos(sph.phi),
+      target.z + sph.r*Math.sin(sph.phi)*Math.cos(sph.theta)
+    );
+    camera.lookAt(target);
+  }
+  var drag=null, last={x:0,y:0};
+  canvas.addEventListener("pointerdown",function(e){
+    drag=(e.button===2||e.shiftKey)?"pan":"orbit"; last.x=e.clientX; last.y=e.clientY;
+    canvas.setPointerCapture(e.pointerId);
+    document.getElementById("hint").style.opacity="0";
+  });
+  canvas.addEventListener("pointermove",function(e){
+    if(!drag)return;
+    var dx=e.clientX-last.x, dy=e.clientY-last.y; last.x=e.clientX; last.y=e.clientY;
+    if(drag==="orbit"){ sph.theta-=dx*0.006; sph.phi-=dy*0.006; }
+    else{
+      var panS=sph.r*0.0016;
+      var right=new THREE.Vector3().subVectors(camera.position,target).cross(UP).normalize();
+      var upv=new THREE.Vector3(0,1,0);
+      target.addScaledVector(right,-dx*panS); target.addScaledVector(upv, dy*panS);
+    }
+    applyCam();
+  });
+  function endDrag(e){ drag=null; try{canvas.releasePointerCapture(e.pointerId);}catch(_){} }
+  canvas.addEventListener("pointerup",endDrag);
+  canvas.addEventListener("pointercancel",endDrag);
+  canvas.addEventListener("contextmenu",function(e){e.preventDefault();});
+  canvas.addEventListener("wheel",function(e){ e.preventDefault(); sph.r*=(1+Math.sign(e.deltaY)*0.08); applyCam(); },{passive:false});
+  // pinch zoom
+  var pinch=0;
+  canvas.addEventListener("touchmove",function(e){
+    if(e.touches.length===2){
+      var t=e.touches, dxp=t[0].clientX-t[1].clientX, dyp=t[0].clientY-t[1].clientY;
+      var dist=Math.hypot(dxp,dyp);
+      if(pinch){ sph.r*=(1+(pinch-dist)*0.004); applyCam(); }
+      pinch=dist; e.preventDefault();
+    }
+  },{passive:false});
+  canvas.addEventListener("touchend",function(){pinch=0;});
+
+  // ===================== CONTROLS =====================
+  var gatesOpen=false, spin=false;
+  var btnGates=document.getElementById("btnGates"),
+      btnGhost=document.getElementById("btnGhost"),
+      btnTags =document.getElementById("btnTags"),
+      btnSpin =document.getElementById("btnSpin"),
+      btnReset=document.getElementById("btnReset");
+
+  btnGates.onclick=function(){ gatesOpen=!gatesOpen; btnGates.setAttribute("aria-pressed",gatesOpen); btnGates.firstChild.textContent=gatesOpen?"⇄ Close gates":"⇄ Open gates"; };
+  var ghost=false;
+  btnGhost.onclick=function(){
+    ghost=!ghost; btnGhost.setAttribute("aria-pressed",ghost);
+    var o=ghost?0.18:1;
+    matSheet.opacity=o; matSheet.transparent=ghost;
+    matGate.opacity=ghost?0.28:1; matGate.transparent=ghost;
+  };
+  var showTags=true;
+  btnTags.onclick=function(){ showTags=!showTags; btnTags.setAttribute("aria-pressed",showTags); tagsEl.style.display=showTags?"":"none"; };
+  btnSpin.onclick=function(){ spin=!spin; btnSpin.setAttribute("aria-pressed",spin); };
+  btnReset.onclick=function(){ sph.r=HOME.r; sph.theta=HOME.theta; sph.phi=HOME.phi; target.set(0,0.72,0); applyCam(); };
+
+  // ===================== PROJECTED DIMENSION TAGS =====================
+  var tagsEl=document.getElementById("tags");
+  var tagDefs=[
+    {p:[0,1.80,hz+0.05], t:"2300 mm long", acc:true},
+    {p:[hx+0.05,0.95,0], t:"800 mm wide", acc:true},
+    {p:[-(hx)-0.02,0.95,-postZ], t:"1500 mm high", acc:true},
+    {p:[-(hx-0.10),0.10,-postZ], t:"load cell ×4", acc:false},
+    {p:[-hx,1.05,0], t:"sliding gate", acc:false},
+    {p:[-hx-0.35,1.40,-(hz+0.30)], t:"weigh display", acc:false}
+  ];
+  var tagEls=tagDefs.map(function(d){
+    var el=document.createElement("div");
+    el.className="tag"+(d.acc?" acc":"");
+    el.textContent=d.t; tagsEl.appendChild(el);
+    el.vec=new THREE.Vector3(d.p[0],d.p[1],d.p[2]);
+    return el;
+  });
+  function updateTags(){
+    var w=window.innerWidth, h=window.innerHeight;
+    for(var i=0;i<tagEls.length;i++){
+      var v=tagEls[i].vec.clone().project(camera);
+      if(v.z>1){ tagEls[i].style.display="none"; continue; }
+      tagEls[i].style.display=showTags?"":"none";
+      tagEls[i].style.left=((v.x*0.5+0.5)*w)+"px";
+      tagEls[i].style.top =((-v.y*0.5+0.5)*h)+"px";
+    }
+  }
+
+  // ===================== RESIZE / LOOP =====================
+  function resize(){
+    var w=window.innerWidth, h=window.innerHeight;
+    renderer.setSize(w,h,false); camera.aspect=w/h; camera.updateProjectionMatrix();
+  }
+  window.addEventListener("resize",resize);
+
+  var reduce=window.matchMedia("(prefers-reduced-motion:reduce)").matches;
+  function tick(){
+    requestAnimationFrame(tick);
+    // gate slide animation
+    var tgtE=gatesOpen?0.78:0, tgtX=gatesOpen?0.78:0;
+    gateEntry.position.z += (tgtE-gateEntry.position.z)*0.12;
+    gateExit.position.z  += (tgtX-gateExit.position.z)*0.12;
+    if(spin && !reduce){ sph.theta+=0.0035; applyCam(); }
+    updateTags();
+    renderer.render(scene,camera);
+  }
+  resize(); applyCam(); tick();
+})();
+</script>
+
+</body></html>
