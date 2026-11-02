@@ -236,8 +236,6 @@
     [0.97,1.14,1.31,1.48,1.63].forEach(function(ry){ pipe(g, 0,ry,-gz, 0,ry,gz, railR, matGate); });
     // lower sheet to 0.80
     box(g, 0,(FLOOR+0.80)/2,0, 0.03,0.80-FLOOR,gz*2, matGate);
-    // diagonal brace
-    pipe(g, 0,FLOOR+0.03,-gz, 0,topY-0.05,gz, railR*0.85, matGate);
     g.castShadow=true;
     return g;
   }
@@ -272,40 +270,49 @@
     );
     camera.lookAt(target);
   }
-  var drag=null, last={x:0,y:0};
+  // Unified pointer handling (mouse + touch). Tracks every active pointer so
+  // one finger orbits, two fingers pinch-zoom + pan. Move/up on window so a
+  // drag keeps working even if the finger leaves the canvas.
+  var ptrs=new Map(), panMode=false, pinchPrev=0;
+  function hideHint(){ var h=document.getElementById("hint"); if(h) h.style.opacity="0"; }
+  function panByPixels(dx,dy){
+    var panS=sph.r*0.0016;
+    var right=new THREE.Vector3().subVectors(camera.position,target).cross(UP).normalize();
+    target.addScaledVector(right,-dx*panS);
+    target.addScaledVector(UP, dy*panS);
+  }
   canvas.addEventListener("pointerdown",function(e){
-    drag=(e.button===2||e.shiftKey)?"pan":"orbit"; last.x=e.clientX; last.y=e.clientY;
-    canvas.setPointerCapture(e.pointerId);
-    document.getElementById("hint").style.opacity="0";
+    e.preventDefault();
+    ptrs.set(e.pointerId,{x:e.clientX,y:e.clientY});
+    panMode=(e.button===2||e.shiftKey);
+    try{ canvas.setPointerCapture(e.pointerId); }catch(_){}
+    hideHint();
   });
-  canvas.addEventListener("pointermove",function(e){
-    if(!drag)return;
-    var dx=e.clientX-last.x, dy=e.clientY-last.y; last.x=e.clientX; last.y=e.clientY;
-    if(drag==="orbit"){ sph.theta-=dx*0.006; sph.phi-=dy*0.006; }
-    else{
-      var panS=sph.r*0.0016;
-      var right=new THREE.Vector3().subVectors(camera.position,target).cross(UP).normalize();
-      var upv=new THREE.Vector3(0,1,0);
-      target.addScaledVector(right,-dx*panS); target.addScaledVector(upv, dy*panS);
+  window.addEventListener("pointermove",function(e){
+    var p=ptrs.get(e.pointerId); if(!p) return;
+    e.preventDefault();
+    if(ptrs.size>=2){
+      // two-finger: pinch zoom from the distance between the two pointers
+      p.x=e.clientX; p.y=e.clientY;
+      var pts=Array.from(ptrs.values());
+      var dist=Math.hypot(pts[0].x-pts[1].x, pts[0].y-pts[1].y);
+      if(pinchPrev) sph.r*=(1+(pinchPrev-dist)*0.005);
+      pinchPrev=dist; applyCam(); return;
     }
+    var dx=e.clientX-p.x, dy=e.clientY-p.y; p.x=e.clientX; p.y=e.clientY;
+    if(panMode){ panByPixels(dx,dy); }
+    else{ sph.theta-=dx*0.006; sph.phi-=dy*0.006; }
     applyCam();
-  });
-  function endDrag(e){ drag=null; try{canvas.releasePointerCapture(e.pointerId);}catch(_){} }
-  canvas.addEventListener("pointerup",endDrag);
-  canvas.addEventListener("pointercancel",endDrag);
-  canvas.addEventListener("contextmenu",function(e){e.preventDefault();});
-  canvas.addEventListener("wheel",function(e){ e.preventDefault(); sph.r*=(1+Math.sign(e.deltaY)*0.08); applyCam(); },{passive:false});
-  // pinch zoom
-  var pinch=0;
-  canvas.addEventListener("touchmove",function(e){
-    if(e.touches.length===2){
-      var t=e.touches, dxp=t[0].clientX-t[1].clientX, dyp=t[0].clientY-t[1].clientY;
-      var dist=Math.hypot(dxp,dyp);
-      if(pinch){ sph.r*=(1+(pinch-dist)*0.004); applyCam(); }
-      pinch=dist; e.preventDefault();
-    }
   },{passive:false});
-  canvas.addEventListener("touchend",function(){pinch=0;});
+  function dropPtr(e){
+    ptrs.delete(e.pointerId);
+    if(ptrs.size<2) pinchPrev=0;
+    try{ canvas.releasePointerCapture(e.pointerId); }catch(_){}
+  }
+  window.addEventListener("pointerup",dropPtr);
+  window.addEventListener("pointercancel",dropPtr);
+  canvas.addEventListener("contextmenu",function(e){e.preventDefault();});
+  canvas.addEventListener("wheel",function(e){ e.preventDefault(); sph.r*=(1+Math.sign(e.deltaY)*0.09); applyCam(); },{passive:false});
 
   // ===================== CONTROLS =====================
   var gatesOpen=false, spin=false;
@@ -346,7 +353,7 @@
     return el;
   });
   function updateTags(){
-    var w=window.innerWidth, h=window.innerHeight;
+    var w=viewW, h=viewH;
     for(var i=0;i<tagEls.length;i++){
       var v=tagEls[i].vec.clone().project(camera);
       if(v.z>1){ tagEls[i].style.display="none"; continue; }
@@ -357,15 +364,21 @@
   }
 
   // ===================== RESIZE / LOOP =====================
+  var viewW=0, viewH=0;
   function resize(){
-    var w=window.innerWidth, h=window.innerHeight;
-    renderer.setSize(w,h,false); camera.aspect=w/h; camera.updateProjectionMatrix();
+    // viewport dims are always valid; re-check each frame so the view fills the
+    // frame once the artifact panel has settled (fixes the off-centre / blank view)
+    var w=Math.max(1, window.innerWidth), h=Math.max(1, window.innerHeight);
+    if(w===viewW && h===viewH) return;
+    viewW=w; viewH=h;
+    renderer.setSize(w,h); camera.aspect=w/h; camera.updateProjectionMatrix();
   }
   window.addEventListener("resize",resize);
 
   var reduce=window.matchMedia("(prefers-reduced-motion:reduce)").matches;
   function tick(){
     requestAnimationFrame(tick);
+    resize();
     // gate slide animation
     var tgtE=gatesOpen?0.78:0, tgtX=gatesOpen?0.78:0;
     gateEntry.position.z += (tgtE-gateEntry.position.z)*0.12;
