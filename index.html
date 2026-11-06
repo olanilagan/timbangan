@@ -97,7 +97,7 @@
 
 <div class="hud" id="legend">
   <div class="lrow"><span class="sw" style="background:#b9bec4"></span>Galvanised steel</div>
-  <div class="lrow"><span class="sw" style="background:#6f7681"></span>Sliding gates ×2</div>
+  <div class="lrow"><span class="sw" style="background:#6f7681"></span>Swing gates (head opening)</div>
   <div class="lrow"><span class="sw" style="background:#c0392b"></span>Load cells ×4</div>
   <div class="lrow"><span class="sw" style="background:#cfccc4"></span>Concrete pad</div>
 </div>
@@ -179,8 +179,8 @@
   var LEN=2.30, WID=0.80, FLOOR=0.15, SIDE=1.50;
   var hx=LEN/2, hz=WID/2;              // 1.15 , 0.40
   var postZ=hz-0.055;                  // 0.345 side-post offset
-  var railR=0.0365, postR=0.0445;      // 2.5" and 3.5" OD/2
-  var railY=[0.97,1.14,1.31,1.48,1.65];// 5 rails above the sheet (world Y)
+  var railR=0.030, postR=0.030;        // all 2" (60mm OD) pipe
+  var railY=[0.96,1.19,1.42,1.65];    // 4 rails above the sheet (world Y)
   var topY=FLOOR+SIDE;                 // 1.65
 
   // ---- concrete pad (recessed; deck floor sits ~flush) ----
@@ -208,11 +208,11 @@
       postCap(body, postX[pi],topY, pz, postR, matSteel);
     });
   }
-  // lower solid sheet both long sides (floor -> 0.80)
+  // lower solid sheet both long sides, raised 0.10 off the floor (hose-out gap)
   [-(postZ),postZ].forEach(function(pz){
-    box(body, 0,(FLOOR+0.80)/2, pz, LEN-0.11,0.80-FLOOR,0.02, matSheet);
+    box(body, 0,(FLOOR+0.10+0.80)/2, pz, LEN-0.11,0.80-(FLOOR+0.10),0.02, matSheet);
   });
-  // 5 rails per long side
+  // 4 rails per long side
   [-(postZ),postZ].forEach(function(pz){
     railY.forEach(function(ry){
       pipe(body, -(hx-0.055),ry, pz, (hx-0.055),ry, pz, railR, matSteel);
@@ -226,24 +226,62 @@
     box(body, sx*(hx-0.10),0.015,sz*postZ, 0.10,0.03,0.10, matDark);
   });});
 
-  // ===================== SLIDING GATES =====================
-  function buildGate(){
-    var g=new THREE.Group();
-    var gz=0.36;                        // half clear opening 0.72
-    // stiles
-    [-gz,gz].forEach(function(z){ pipe(g, 0,FLOOR,z, 0,topY,z, railR, matGate); });
-    // 5 rails (across Z)
-    [0.97,1.14,1.31,1.48,1.63].forEach(function(ry){ pipe(g, 0,ry,-gz, 0,ry,gz, railR, matGate); });
-    // lower sheet to 0.80
-    box(g, 0,(FLOOR+0.80)/2,0, 0.03,0.80-FLOOR,gz*2, matGate);
-    g.castShadow=true;
-    return g;
+  // ===================== SWING GATES =====================
+  // Both ends are hinged swing gates (lower sheet + upper vertical bars),
+  // hinge + drop-pin latch + padlock. The front (head) gate has a framed
+  // head opening in the upper bars. Leaf hinges at local z=0 so it swings.
+  var GW_=0.72, sheetTop_=0.80;
+  function cyl(group, x,y,z, r,h, mat, axis){
+    var m=new THREE.Mesh(new THREE.CylinderGeometry(r,r,h,14), mat);
+    m.position.set(x,y,z); m.castShadow=true;
+    if(axis==="x") m.rotation.z=Math.PI/2;
+    if(axis==="z") m.rotation.x=Math.PI/2;
+    group.add(m); return m;
   }
-  var gateEntry=buildGate(); gateEntry.position.x=-hx; scene.add(gateEntry);
-  var gateExit =buildGate(); gateExit.position.x= hx; scene.add(gateExit);
-  // top tracks (fixed) over each gate
-  box(scene, -hx,topY+0.06,0, 0.08,0.08,1.02, matDark);
-  box(scene,  hx,topY+0.06,0, 0.08,0.08,1.02, matDark);
+  function addHardware(leaf){
+    // 2 hinges on hinge stile (z=0): barrel + knuckle strap + pin (pin on swing axis)
+    [FLOOR+0.20, topY-0.20].forEach(function(hy){
+      cyl(leaf, 0,hy,0, 0.03,0.12, matDark, "y");         // barrel
+      box(leaf, 0,hy,0.055, 0.02,0.05,0.11, matDark);     // strap to leaf
+      cyl(leaf, 0,hy,0, 0.013,0.17, matSteel, "y");       // pin
+    });
+    // SIMPLE SWIVEL LATCH - a short PLATE on the gate, sitting proud (outboard)
+    var ly=FLOOR+0.95;
+    box(leaf, 0,ly,GW_+0.05, 0.025,0.05,0.07, matDark);   // short plate/tab on gate (outboard)
+  }
+  // swivel HOOK on the latch-side corner post, sitting OUTBOARD of the post face
+  function addLatchLever(xEnd){
+    var s=(xEnd<0)?-1:1;
+    var px=s*(hx-0.055), ly=FLOOR+0.95, zout=0.42;   // latch plane, clear of the post
+    box(scene, px, ly+0.02, 0.3975, 0.04,0.03,0.045, matDark);       // stub bracket off the post
+    cyl(scene, px, ly+0.02, zout, 0.012,0.06, matSteel,"y");          // pivot bolt
+    box(scene, px+s*0.045, ly+0.02, zout, 0.10,0.022,0.022, matDark); // hook arm reaching to gate
+    box(scene, px+s*0.092, ly-0.004, zout, 0.022,0.05,0.022, matDark);// hook lip catching plate
+  }
+  function buildSwingGate(head){
+    var pivot=new THREE.Group(), leaf=new THREE.Group();
+    var GW=GW_, MRm=0.90, bdx=0.175;                 // all-pipe gate; mid rail at 0.90
+    pipe(leaf, 0,FLOOR,0, 0,topY,0, railR, matGate);       // hinge stile
+    pipe(leaf, 0,FLOOR,GW, 0,topY,GW, railR, matGate);     // latch stile
+    pipe(leaf, 0,FLOOR,0, 0,FLOOR,GW, railR, matGate);     // bottom rail
+    pipe(leaf, 0,topY,0, 0,topY,GW, railR, matGate);       // top rail
+    pipe(leaf, 0,MRm,0, 0,MRm,GW, railR, matGate);         // mid support rail
+    if(head){
+      pipe(leaf, 0,FLOOR,GW/2-bdx, 0,topY,GW/2-bdx, railR, matGate);  // opening side bars
+      pipe(leaf, 0,FLOOR,GW/2+bdx, 0,topY,GW/2+bdx, railR, matGate);
+      pipe(leaf, 0,FLOOR,GW/2, 0,MRm,GW/2, railR, matGate);           // centre bar, lower only
+    } else {
+      [GW/2-bdx, GW/2, GW/2+bdx].forEach(function(bz){                // 3 bars -> 5 verticals
+        pipe(leaf, 0,FLOOR,bz, 0,topY,bz, railR, matGate);
+      });
+    }
+    addHardware(leaf);
+    pivot.add(leaf);
+    return pivot;
+  }
+  var gateEntry=buildSwingGate(false); gateEntry.position.set(-hx,0,-0.36); scene.add(gateEntry);
+  var gateHead =buildSwingGate(true);  gateHead.position.set( hx,0,-0.36); scene.add(gateHead);
+  addLatchLever(-hx); addLatchLever(hx);   // lever hooks on the latch posts
 
   // ===================== WEIGHT INDICATOR on a post =====================
   var stand=new THREE.Group(); scene.add(stand);
@@ -342,7 +380,8 @@
     {p:[hx+0.05,0.95,0], t:"800 mm wide", acc:true},
     {p:[-(hx)-0.02,0.95,-postZ], t:"1500 mm high", acc:true},
     {p:[-(hx-0.10),0.10,-postZ], t:"load cell ×4", acc:false},
-    {p:[-hx,1.05,0], t:"sliding gate", acc:false},
+    {p:[-hx,1.05,0], t:"entry swing gate", acc:false},
+    {p:[hx,1.15,0], t:"head opening", acc:false},
     {p:[-hx-0.35,1.40,-(hz+0.30)], t:"weigh display", acc:false}
   ];
   var tagEls=tagDefs.map(function(d){
@@ -379,10 +418,11 @@
   function tick(){
     requestAnimationFrame(tick);
     resize();
-    // gate slide animation
-    var tgtE=gatesOpen?0.78:0, tgtX=gatesOpen?0.78:0;
-    gateEntry.position.z += (tgtE-gateEntry.position.z)*0.12;
-    gateExit.position.z  += (tgtX-gateExit.position.z)*0.12;
+    // swing both gates open/closed about their hinges
+    var oE = gatesOpen ? -1.15 : 0;
+    gateEntry.rotation.y += (oE-gateEntry.rotation.y)*0.10;
+    var oH = gatesOpen ? 1.15 : 0;
+    gateHead.rotation.y  += (oH-gateHead.rotation.y)*0.10;
     if(spin && !reduce){ sph.theta+=0.0035; applyCam(); }
     updateTags();
     renderer.render(scene,camera);
